@@ -194,7 +194,7 @@ function lbl_solve!(
                     x_perm[k] *= A[k, last(indices)]
                 else
                     pivot = A[k, k]
-                    x_perm[k] = iszero(pivot) ? zero(T) : x_perm[k] / pivot
+                    x_perm[k] = iszero(pivot) ? pivot : x_perm[k] / pivot
                 end
                 k += 1
             else
