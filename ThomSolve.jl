@@ -110,12 +110,42 @@ function sphere_project!(points::AbstractMatrix{T}) where {T}
             z_i = points[i, z]
             r2 = abs2(x_i) + abs2(y_i) + abs2(z_i)
             inv_r = sqrt(inv(r2))
-            points[i, x] = inv_r * x_i
-            points[i, y] = inv_r * y_i
-            points[i, z] = inv_r * z_i
+            points[i, x] = x_i * inv_r
+            points[i, y] = y_i * inv_r
+            points[i, z] = z_i * inv_r
         end
     end
     return points
+end
+
+
+function sphere_step!(
+    result::AbstractMatrix{T},
+    points::AbstractMatrix{T},
+    step_size::T,
+    step_direction::AbstractMatrix{T},
+) where {T}
+    point_axis = axes(result, 1)
+    xyz_axis = axes(result, 2)
+    @assert point_axis == axes(points, 1)
+    @assert xyz_axis == axes(points, 2)
+    @assert point_axis == axes(step_direction, 1)
+    @assert xyz_axis == axes(step_direction, 2)
+    @assert length(xyz_axis) == 3
+    x, y, z = xyz_axis
+    @inbounds begin
+        @simd ivdep for i in point_axis
+            x_i = muladd(step_size, step_direction[i, x], points[i, x])
+            y_i = muladd(step_size, step_direction[i, y], points[i, y])
+            z_i = muladd(step_size, step_direction[i, z], points[i, z])
+            r2 = abs2(x_i) + abs2(y_i) + abs2(z_i)
+            inv_r = sqrt(inv(r2))
+            result[i, x] = x_i * inv_r
+            result[i, y] = y_i * inv_r
+            result[i, z] = z_i * inv_r
+        end
+    end
+    return result
 end
 
 
