@@ -179,7 +179,7 @@ function lbl_solve!(
         end
         for i in indices
             rhs_i = x_perm[i]
-            for j = first(indices):(i-2)
+            @simd ivdep for j = first(indices):(i-2)
                 rhs_i = muladd(-A[i, j], x_perm[j], rhs_i)
             end
             if (i > first(indices)) && (pivot_type[i-1] != LBL_PIVOT_2X2)
@@ -211,7 +211,7 @@ function lbl_solve!(
         end
         for i = last(indices):-1:first(indices)
             rhs_i = x_perm[i]
-            @simd for j = (i+2):last(indices)
+            @simd ivdep for j = (i+2):last(indices)
                 rhs_i = muladd(-A[j, i], x_perm[j], rhs_i)
             end
             if (i < last(indices)) && (pivot_type[i] != LBL_PIVOT_2X2)
