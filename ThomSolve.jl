@@ -95,7 +95,7 @@ end
 ################################################################ SPHERE GEOMETRY
 
 
-export sphere_project!, sphere_tangent!
+export sphere_project!, sphere_step!, sphere_tangent!
 
 
 function sphere_project!(points::AbstractMatrix{T}) where {T}
