@@ -177,15 +177,23 @@ function lbl_solve!(
         @simd ivdep for i in indices
             x_perm[i] = b[permutation[i]]
         end
-        for i in indices
-            rhs_i = x_perm[i]
-            @simd ivdep for j = first(indices):(i-2)
-                rhs_i = muladd(-A[i, j], x_perm[j], rhs_i)
+        k = first(indices)
+        while k <= last(indices)
+            if pivot_type[k] == LBL_PIVOT_1X1
+                rhs_k = x_perm[k]
+                @simd ivdep for i = (k+1):last(indices)
+                    x_perm[i] = muladd(-A[i, k], rhs_k, x_perm[i])
+                end
+                k += 1
+            else
+                rhs_1 = x_perm[k]
+                rhs_2 = x_perm[k+1]
+                @simd ivdep for i = (k+2):last(indices)
+                    x_perm[i] = muladd(-A[i, k+1], rhs_2,
+                        muladd(-A[i, k], rhs_1, x_perm[i]))
+                end
+                k += 2
             end
-            if (i > first(indices)) && (pivot_type[i-1] != LBL_PIVOT_2X2)
-                rhs_i = muladd(-A[i, i-1], x_perm[i-1], rhs_i)
-            end
-            x_perm[i] = rhs_i
         end
         k = first(indices)
         while k <= last(indices)
