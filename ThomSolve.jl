@@ -1,5 +1,7 @@
 module ThomSolve
 
+using MultiFloats: rsqrt_r
+
 
 ################################################################# COULOMB ENERGY
 
@@ -25,7 +27,7 @@ function coulomb_energy(points::AbstractMatrix{T}) where {T}
             dy = y_i - y_j
             dz = z_i - z_j
             r2 = abs2(dx) + abs2(dy) + abs2(dz)
-            result += sqrt(inv(r2))
+            result += rsqrt_r(r2)
         end
     end
     return result
@@ -67,8 +69,8 @@ function coulomb_forces!(
                 dy = y_i - y_j
                 dz = z_i - z_j
                 r2 = abs2(dx) + abs2(dy) + abs2(dz)
-                inv_r2 = inv(r2)
-                inv_r = sqrt(inv_r2)
+                inv_r = rsqrt_r(r2)
+                inv_r2 = abs2(inv_r)
                 point_energy_i += inv_r
                 point_energies[j] += inv_r
                 inv_r3 = inv_r2 * inv_r
@@ -109,7 +111,7 @@ function sphere_project!(points::AbstractMatrix{T}) where {T}
             y_i = points[i, y]
             z_i = points[i, z]
             r2 = abs2(x_i) + abs2(y_i) + abs2(z_i)
-            inv_r = sqrt(inv(r2))
+            inv_r = rsqrt_r(r2)
             points[i, x] = x_i * inv_r
             points[i, y] = y_i * inv_r
             points[i, z] = z_i * inv_r
@@ -139,7 +141,7 @@ function sphere_step!(
             y_i = muladd(step_size, step_direction[i, y], points[i, y])
             z_i = muladd(step_size, step_direction[i, z], points[i, z])
             r2 = abs2(x_i) + abs2(y_i) + abs2(z_i)
-            inv_r = sqrt(inv(r2))
+            inv_r = rsqrt_r(r2)
             result[i, x] = x_i * inv_r
             result[i, y] = y_i * inv_r
             result[i, z] = z_i * inv_r
