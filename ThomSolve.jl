@@ -94,6 +94,60 @@ function coulomb_forces!(
 end
 
 
+################################################################# LINEAR ALGEBRA
+
+
+export orthogonalize_columns!, symmetric_update!
+
+
+function orthogonalize_columns!(A::AbstractMatrix{T}) where {T}
+    _zero = zero(T)
+    row_axis = axes(A, 1)
+    col_axis = axes(A, 2)
+    @inbounds begin
+        for j in col_axis
+            for k = first(col_axis):(j-1)
+                overlap = _zero
+                @simd ivdep for i in row_axis
+                    overlap = muladd(conj(A[i, k]), A[i, j], overlap)
+                end
+                @simd ivdep for i in row_axis
+                    A[i, j] = muladd(-overlap, A[i, k], A[i, j])
+                end
+            end
+            norm2 = _zero
+            @simd ivdep for i in row_axis
+                norm2 += abs2(A[i, j])
+            end
+            inv_norm = rsqrt_r(norm2)
+            @simd ivdep for i in row_axis
+                A[i, j] *= inv_norm
+            end
+        end
+    end
+    return A
+end
+
+
+function symmetric_update!(C::AbstractMatrix{T}, A::AbstractMatrix{T}) where {T}
+    # C is assumed to be symmetric; only its lower triangle (i >= j) is updated.
+    indices = axes(C, 1)
+    @assert axes(C, 2) == indices
+    @assert axes(A, 1) == indices
+    @inbounds begin
+        for k in axes(A, 2)
+            for j in indices
+                a_jk = A[j, k]
+                @simd ivdep for i = j:last(indices)
+                    C[i, j] = muladd(A[i, k], a_jk, C[i, j])
+                end
+            end
+        end
+    end
+    return C
+end
+
+
 ################################################################ SPHERE GEOMETRY
 
 
