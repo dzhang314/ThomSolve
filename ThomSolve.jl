@@ -69,10 +69,9 @@ function coulomb_forces!(
                 dy = y_i - y_j
                 dz = z_i - z_j
                 inv_r = rsqrt_r(abs2(dx) + abs2(dy) + abs2(dz))
-                inv_r2 = abs2(inv_r)
                 point_energy_i += inv_r
                 point_energies[j] += inv_r
-                inv_r3 = inv_r2 * inv_r
+                inv_r3 = abs2(inv_r) * inv_r
                 fx_i = muladd(dx, inv_r3, fx_i)
                 fy_i = muladd(dy, inv_r3, fy_i)
                 fz_i = muladd(dz, inv_r3, fz_i)
@@ -214,8 +213,8 @@ function sphere_step!(
     @assert xyz_axis == axes(points, 2)
     @assert point_axis == axes(stereo_coords, 1)
     @assert st_axis == axes(stereo_coords, 2)
-    step_axis = axes(step, 1)
-    @assert length(step_axis) == 2 * length(point_axis)
+    reduced_axis = axes(step, 1)
+    @assert length(reduced_axis) == 2 * length(point_axis)
     @assert length(xyz_axis) == 3
     @assert length(st_axis) == 2
     x, y, z = xyz_axis
@@ -223,7 +222,7 @@ function sphere_step!(
     _one = one(T)
     @inbounds begin
         @simd ivdep for i in point_axis
-            u = first(step_axis) + 2 * (i - first(point_axis))
+            u = first(reduced_axis) + 2 * (i - first(point_axis))
             v = u + 1
             x_i = points[i, x]
             y_i = points[i, y]
@@ -319,6 +318,178 @@ function sphere_killing_vectors!(
         end
     end
     return result
+end
+
+
+####################################################### SPHERICAL COULOMB ENERGY
+
+
+export construct_pair_geometry!, hessian_from_pair_geometry!
+
+
+function construct_pair_geometry!(
+    H::AbstractMatrix{T},
+    forces_uv::AbstractVector{T},
+    points::AbstractMatrix{T},
+    stereo_coords::AbstractMatrix{T},
+) where {T}
+    reduced_axis = axes(H, 1)
+    @assert reduced_axis == axes(H, 2)
+    @assert reduced_axis == axes(forces_uv, 1)
+    point_axis = axes(points, 1)
+    xyz_axis = axes(points, 2)
+    @assert point_axis == axes(stereo_coords, 1)
+    st_axis = axes(stereo_coords, 2)
+    @assert length(reduced_axis) == 2 * length(point_axis)
+    @assert length(xyz_axis) == 3
+    @assert length(st_axis) == 2
+    x, y, z = xyz_axis
+    s, t = st_axis
+    _zero = zero(T)
+    _one = one(T)
+    _two = _one + _one
+    _half = inv(_two)
+    energy = _zero
+    force_norm2 = _zero
+    fill!(forces_uv, _zero)
+    @inbounds begin
+        for i in point_axis
+            iu = first(reduced_axis) + 2 * (i - first(point_axis))
+            iv = iu + 1
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            s_i = stereo_coords[i, s]
+            t_i = stereo_coords[i, t]
+            fu_i = forces_uv[iu]
+            fv_i = forces_uv[iv]
+            @simd ivdep for j = (i+1):last(point_axis)
+                ju = first(reduced_axis) + 2 * (j - first(point_axis))
+                jv = ju + 1
+                x_j = points[j, x]
+                y_j = points[j, y]
+                z_j = points[j, z]
+                s_j = stereo_coords[j, s]
+                t_j = stereo_coords[j, t]
+                dx = x_i - x_j
+                dy = y_i - y_j
+                dz = z_i - z_j
+                r2 = abs2(dx) + abs2(dy) + abs2(dz)
+                overlap = muladd(-_half, r2, _one)
+                inv_r = rsqrt_r(r2)
+                inv_r3 = abs2(inv_r) * inv_r
+                overlap_i = overlap + flipsign(z_j, z_i)
+                overlap_j = overlap + flipsign(z_i, z_j)
+                du_i = muladd(s_i, overlap_i, -x_j)
+                du_j = muladd(-s_j, overlap_j, x_i)
+                dv_i = flipsign(muladd(t_i, overlap_i, -y_j), z_i)
+                dv_j = flipsign(muladd(-t_j, overlap_j, y_i), z_j)
+                fu_i = muladd(inv_r3, du_i, fu_i)
+                fv_i = muladd(inv_r3, dv_i, fv_i)
+                forces_uv[ju] = muladd(-inv_r3, du_j, forces_uv[ju])
+                forces_uv[jv] = muladd(-inv_r3, dv_j, forces_uv[jv])
+                H[ju, iu] = inv_r
+                H[jv, iu] = overlap
+                H[ju, iv] = du_i
+                H[jv, iv] = dv_i
+                energy += inv_r
+            end
+            force_norm2 += abs2(fu_i) + abs2(fv_i)
+            forces_uv[iu] = fu_i
+            forces_uv[iv] = fv_i
+        end
+    end
+    return (energy, force_norm2)
+end
+
+
+function hessian_from_pair_geometry!(
+    H::AbstractMatrix{T},
+    points::AbstractMatrix{T},
+    stereo_coords::AbstractMatrix{T},
+) where {T}
+    reduced_axis = axes(H, 1)
+    @assert reduced_axis == axes(H, 2)
+    point_axis = axes(points, 1)
+    xyz_axis = axes(points, 2)
+    @assert point_axis == axes(stereo_coords, 1)
+    stereo_axis = axes(stereo_coords, 2)
+    @assert length(reduced_axis) == 2 * length(point_axis)
+    @assert length(xyz_axis) == 3
+    @assert length(stereo_axis) == 2
+    x, y, z = xyz_axis
+    s, t = stereo_axis
+    _zero = zero(T)
+    _one = one(T)
+    _two = _one + _one
+    _three = _two + _one
+    @inbounds begin
+        @simd ivdep for i in point_axis
+            iu = first(reduced_axis) + 2 * (i - first(point_axis))
+            iv = iu + 1
+            H[iu, iu] = _zero
+            H[iv, iu] = _zero
+            H[iv, iv] = _zero
+        end
+        for i = first(point_axis):(last(point_axis)-1)
+            iu = first(reduced_axis) + 2 * (i - first(point_axis))
+            iv = iu + 1
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            xs_i = x_i * stereo_coords[i, s]
+            xt_i = x_i * stereo_coords[i, t]
+            ux_i = _one - xs_i
+            uy_i = -xt_i
+            vx_i = -flipsign(xt_i, z_i)
+            vy_i = flipsign(xs_i + abs(z_i), z_i)
+            h_uu_i = _zero
+            h_vu_i = _zero
+            h_vv_i = _zero
+            @simd ivdep for j = (i+1):last(point_axis)
+                ju = first(reduced_axis) + 2 * (j - first(point_axis))
+                jv = ju + 1
+                z_j = points[j, z]
+                s_j = stereo_coords[j, s]
+                t_j = stereo_coords[j, t]
+                inv_r = H[ju, iu]
+                inv_r2 = abs2(inv_r)
+                inv_r3 = inv_r2 * inv_r
+                three_inv_r5 = _three * inv_r3 * inv_r2
+                overlap = H[jv, iu]
+                overlap_j = overlap + flipsign(z_i, z_j)
+                du_i = H[ju, iv]
+                dv_i = H[jv, iv]
+                du_j = muladd(-s_j, overlap_j, x_i)
+                dv_j = flipsign(muladd(-t_j, overlap_j, y_i), z_j)
+                scaled_du_i = three_inv_r5 * du_i
+                scaled_dv_i = three_inv_r5 * dv_i
+                scaled_du_j = three_inv_r5 * du_j
+                scaled_dv_j = three_inv_r5 * dv_j
+                qu = -du_i - flipsign(flipsign(x_i, z_i), z_j)
+                qv = -dv_i - flipsign(y_i, z_j)
+                q_uu = muladd(-s_j, qu, ux_i)
+                q_vu = flipsign(muladd(-t_j, qu, uy_i), z_j)
+                q_uv = muladd(-s_j, qv, vx_i)
+                q_vv = flipsign(muladd(-t_j, qv, vy_i), z_j)
+                H[ju, iu] = muladd(q_uu, inv_r3, -du_j * scaled_du_i)
+                H[jv, iu] = muladd(q_vu, inv_r3, -dv_j * scaled_du_i)
+                H[ju, iv] = muladd(q_uv, inv_r3, -du_j * scaled_dv_i)
+                H[jv, iv] = muladd(q_vv, inv_r3, -dv_j * scaled_dv_i)
+                diag_shift = -overlap * inv_r3
+                h_uu_i = muladd(du_i, scaled_du_i, h_uu_i + diag_shift)
+                h_vu_i = muladd(dv_i, scaled_du_i, h_vu_i)
+                h_vv_i = muladd(dv_i, scaled_dv_i, h_vv_i + diag_shift)
+                H[ju, ju] = muladd(du_j, scaled_du_j, H[ju, ju] + diag_shift)
+                H[jv, ju] = muladd(dv_j, scaled_du_j, H[jv, ju])
+                H[jv, jv] = muladd(dv_j, scaled_dv_j, H[jv, jv] + diag_shift)
+            end
+            H[iu, iu] += h_uu_i
+            H[iv, iu] += h_vu_i
+            H[iv, iv] += h_vv_i
+        end
+    end
+    return H
 end
 
 
