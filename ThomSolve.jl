@@ -178,12 +178,12 @@ function stereographic_coordinates!(
     points::AbstractMatrix{T},
 ) where {T}
     point_axis = axes(result, 1)
-    stereo_axis = axes(result, 2)
+    st_axis = axes(result, 2)
     @assert point_axis == axes(points, 1)
     xyz_axis = axes(points, 2)
-    @assert length(stereo_axis) == 2
+    @assert length(st_axis) == 2
     @assert length(xyz_axis) == 3
-    s, t = stereo_axis
+    s, t = st_axis
     x, y, z = xyz_axis
     _one = one(T)
     @inbounds begin
@@ -413,12 +413,12 @@ function hessian_from_pair_geometry!(
     point_axis = axes(points, 1)
     xyz_axis = axes(points, 2)
     @assert point_axis == axes(stereo_coords, 1)
-    stereo_axis = axes(stereo_coords, 2)
+    st_axis = axes(stereo_coords, 2)
     @assert length(reduced_axis) == 2 * length(point_axis)
     @assert length(xyz_axis) == 3
-    @assert length(stereo_axis) == 2
+    @assert length(st_axis) == 2
     x, y, z = xyz_axis
-    s, t = stereo_axis
+    s, t = st_axis
     _zero = zero(T)
     _one = one(T)
     _two = _one + _one
