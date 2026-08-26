@@ -14,19 +14,20 @@ function coulomb_energy(points::AbstractMatrix{T}) where {T}
     @assert length(xyz_axis) == 3
     x, y, z = xyz_axis
     result = zero(T)
-    @inbounds for i = first(point_axis):(last(point_axis)-1)
-        x_i = points[i, x]
-        y_i = points[i, y]
-        z_i = points[i, z]
-        @simd ivdep for j = (i+1):last(point_axis)
-            x_j = points[j, x]
-            y_j = points[j, y]
-            z_j = points[j, z]
-            dx = x_i - x_j
-            dy = y_i - y_j
-            dz = z_i - z_j
-            r2 = abs2(dx) + abs2(dy) + abs2(dz)
-            result += rsqrt_r(r2)
+    @inbounds begin
+        for i = first(point_axis):(last(point_axis)-1)
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            @simd ivdep for j = (i+1):last(point_axis)
+                x_j = points[j, x]
+                y_j = points[j, y]
+                z_j = points[j, z]
+                dx = x_i - x_j
+                dy = y_i - y_j
+                dz = z_i - z_j
+                result += rsqrt_r(abs2(dx) + abs2(dy) + abs2(dz))
+            end
         end
     end
     return result
@@ -67,8 +68,7 @@ function coulomb_forces!(
                 dx = x_i - x_j
                 dy = y_i - y_j
                 dz = z_i - z_j
-                r2 = abs2(dx) + abs2(dy) + abs2(dz)
-                inv_r = rsqrt_r(r2)
+                inv_r = rsqrt_r(abs2(dx) + abs2(dy) + abs2(dz))
                 inv_r2 = abs2(inv_r)
                 point_energy_i += inv_r
                 point_energies[j] += inv_r
@@ -150,8 +150,8 @@ end
 ################################################################ SPHERE GEOMETRY
 
 
-export sphere_project!, sphere_step!, sphere_tangent!,
-    stereographic_coordinates!, sphere_killing_vectors!
+export sphere_project!, stereographic_coordinates!, sphere_step!,
+    sphere_tangent!, sphere_killing_vectors!
 
 
 function sphere_project!(points::AbstractMatrix{T}) where {T}
@@ -164,8 +164,7 @@ function sphere_project!(points::AbstractMatrix{T}) where {T}
             x_i = points[i, x]
             y_i = points[i, y]
             z_i = points[i, z]
-            r2 = abs2(x_i) + abs2(y_i) + abs2(z_i)
-            inv_r = rsqrt_r(r2)
+            inv_r = rsqrt_r(abs2(x_i) + abs2(y_i) + abs2(z_i))
             points[i, x] = x_i * inv_r
             points[i, y] = y_i * inv_r
             points[i, z] = z_i * inv_r
@@ -175,33 +174,78 @@ function sphere_project!(points::AbstractMatrix{T}) where {T}
 end
 
 
-function sphere_step!(
+function stereographic_coordinates!(
     result::AbstractMatrix{T},
     points::AbstractMatrix{T},
-    step_size::T,
-    step_direction::AbstractMatrix{T},
 ) where {T}
     point_axis = axes(result, 1)
-    xyz_axis = axes(result, 2)
+    stereo_axis = axes(result, 2)
     @assert point_axis == axes(points, 1)
-    @assert xyz_axis == axes(points, 2)
-    @assert point_axis == axes(step_direction, 1)
-    @assert xyz_axis == axes(step_direction, 2)
+    xyz_axis = axes(points, 2)
+    @assert length(stereo_axis) == 2
     @assert length(xyz_axis) == 3
+    s, t = stereo_axis
     x, y, z = xyz_axis
+    _one = one(T)
     @inbounds begin
         @simd ivdep for i in point_axis
-            x_i = muladd(step_size, step_direction[i, x], points[i, x])
-            y_i = muladd(step_size, step_direction[i, y], points[i, y])
-            z_i = muladd(step_size, step_direction[i, z], points[i, z])
-            r2 = abs2(x_i) + abs2(y_i) + abs2(z_i)
-            inv_r = rsqrt_r(r2)
-            result[i, x] = x_i * inv_r
-            result[i, y] = y_i * inv_r
-            result[i, z] = z_i * inv_r
+            inv_1z = inv(_one + abs(points[i, z]))
+            result[i, s] = points[i, x] * inv_1z
+            result[i, t] = points[i, y] * inv_1z
         end
     end
     return result
+end
+
+
+function sphere_step!(
+    new_points::AbstractMatrix{T},
+    new_stereo_coords::AbstractMatrix{T},
+    points::AbstractMatrix{T},
+    stereo_coords::AbstractMatrix{T},
+    step_size::T,
+    step::AbstractVector{T},
+) where {T}
+    point_axis = axes(new_points, 1)
+    xyz_axis = axes(new_points, 2)
+    @assert point_axis == axes(new_stereo_coords, 1)
+    st_axis = axes(new_stereo_coords, 2)
+    @assert point_axis == axes(points, 1)
+    @assert xyz_axis == axes(points, 2)
+    @assert point_axis == axes(stereo_coords, 1)
+    @assert st_axis == axes(stereo_coords, 2)
+    step_axis = axes(step, 1)
+    @assert length(step_axis) == 2 * length(point_axis)
+    @assert length(xyz_axis) == 3
+    @assert length(st_axis) == 2
+    x, y, z = xyz_axis
+    s, t = st_axis
+    _one = one(T)
+    @inbounds begin
+        @simd ivdep for i in point_axis
+            u = first(step_axis) + 2 * (i - first(point_axis))
+            v = u + 1
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            step_u = step_size * step[u]
+            step_v = flipsign(step_size * step[v], z_i)
+            inv_r = rsqrt_r(_one + abs2(step_u) + abs2(step_v))
+            xy_scale = _one - muladd(
+                stereo_coords[i, s], step_u, stereo_coords[i, t] * step_v)
+            xy_overlap = muladd(x_i, step_u, y_i * step_v)
+            x_i = muladd(xy_scale, x_i, step_u) * inv_r
+            y_i = muladd(xy_scale, y_i, step_v) * inv_r
+            z_i = (z_i - flipsign(xy_overlap, z_i)) * inv_r
+            inv_1z = inv(_one + abs(z_i))
+            new_points[i, x] = x_i
+            new_points[i, y] = y_i
+            new_points[i, z] = z_i
+            new_stereo_coords[i, s] = x_i * inv_1z
+            new_stereo_coords[i, t] = y_i * inv_1z
+        end
+    end
+    return new_points
 end
 
 
@@ -232,30 +276,6 @@ function sphere_tangent!(
             vectors[i, y] = vy_i
             vectors[i, z] = vz_i
             result += abs2(vx_i) + abs2(vy_i) + abs2(vz_i)
-        end
-    end
-    return result
-end
-
-
-function stereographic_coordinates!(
-    result::AbstractMatrix{T},
-    points::AbstractMatrix{T},
-) where {T}
-    point_axis = axes(result, 1)
-    stereo_axis = axes(result, 2)
-    @assert point_axis == axes(points, 1)
-    xyz_axis = axes(points, 2)
-    @assert length(stereo_axis) == 2
-    @assert length(xyz_axis) == 3
-    s, t = stereo_axis
-    x, y, z = xyz_axis
-    _one = one(T)
-    @inbounds begin
-        @simd ivdep for i in point_axis
-            inv_z1 = inv(_one + abs(points[i, z]))
-            result[i, s] = points[i, x] * inv_z1
-            result[i, t] = points[i, y] * inv_z1
         end
     end
     return result
