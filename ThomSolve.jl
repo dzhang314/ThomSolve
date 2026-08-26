@@ -203,7 +203,7 @@ function sphere_step!(
     points::AbstractMatrix{T},
     stereo_coords::AbstractMatrix{T},
     step_size::T,
-    step::AbstractVector{T},
+    step_direction::AbstractVector{T},
 ) where {T}
     point_axis = axes(new_points, 1)
     xyz_axis = axes(new_points, 2)
@@ -213,7 +213,7 @@ function sphere_step!(
     @assert xyz_axis == axes(points, 2)
     @assert point_axis == axes(stereo_coords, 1)
     @assert st_axis == axes(stereo_coords, 2)
-    reduced_axis = axes(step, 1)
+    reduced_axis = axes(step_direction, 1)
     @assert length(reduced_axis) == 2 * length(point_axis)
     @assert length(xyz_axis) == 3
     @assert length(st_axis) == 2
@@ -227,8 +227,8 @@ function sphere_step!(
             x_i = points[i, x]
             y_i = points[i, y]
             z_i = points[i, z]
-            step_u = step_size * step[u]
-            step_v = flipsign(step_size * step[v], z_i)
+            step_u = step_size * step_direction[u]
+            step_v = flipsign(step_size * step_direction[v], z_i)
             inv_r = rsqrt_r(_one + abs2(step_u) + abs2(step_v))
             xy_scale = _one - muladd(
                 stereo_coords[i, s], step_u, stereo_coords[i, t] * step_v)
