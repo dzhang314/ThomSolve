@@ -349,8 +349,7 @@ function construct_pair_geometry!(
     _one = one(T)
     _two = _one + _one
     _half = inv(_two)
-    energy = _zero
-    force_norm2 = _zero
+    result = _zero
     fill!(forces_uv, _zero)
     @inbounds begin
         for i in point_axis
@@ -392,14 +391,13 @@ function construct_pair_geometry!(
                 H[jv, iu] = overlap
                 H[ju, iv] = du_i
                 H[jv, iv] = dv_i
-                energy += inv_r
             end
-            force_norm2 += abs2(fu_i) + abs2(fv_i)
+            result += abs2(fu_i) + abs2(fv_i)
             forces_uv[iu] = fu_i
             forces_uv[iv] = fv_i
         end
     end
-    return (energy, force_norm2)
+    return result
 end
 
 
