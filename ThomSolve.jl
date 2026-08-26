@@ -2,7 +2,6 @@ module ThomSolve
 
 using MultiFloats: rsqrt_r
 
-
 ################################################################# COULOMB ENERGY
 
 
@@ -151,7 +150,8 @@ end
 ################################################################ SPHERE GEOMETRY
 
 
-export sphere_project!, sphere_step!, sphere_tangent!
+export sphere_project!, sphere_step!, sphere_tangent!,
+    stereographic_coordinates!, sphere_killing_vectors!
 
 
 function sphere_project!(points::AbstractMatrix{T}) where {T}
@@ -237,5 +237,71 @@ function sphere_tangent!(
     return result
 end
 
+
+function stereographic_coordinates!(
+    result::AbstractMatrix{T},
+    points::AbstractMatrix{T},
+) where {T}
+    point_axis = axes(result, 1)
+    stereo_axis = axes(result, 2)
+    @assert point_axis == axes(points, 1)
+    xyz_axis = axes(points, 2)
+    @assert length(stereo_axis) == 2
+    @assert length(xyz_axis) == 3
+    s, t = stereo_axis
+    x, y, z = xyz_axis
+    _one = one(T)
+    @inbounds begin
+        @simd ivdep for i in point_axis
+            inv_z1 = inv(_one + abs(points[i, z]))
+            result[i, s] = points[i, x] * inv_z1
+            result[i, t] = points[i, y] * inv_z1
+        end
+    end
+    return result
+end
+
+
+function sphere_killing_vectors!(
+    result::AbstractMatrix{T},
+    points::AbstractMatrix{T},
+    stereo_coords::AbstractMatrix{T},
+) where {T}
+    reduced_axis = axes(result, 1)
+    rotation_axis = axes(result, 2)
+    point_axis = axes(points, 1)
+    xyz_axis = axes(points, 2)
+    @assert point_axis == axes(stereo_coords, 1)
+    st_axis = axes(stereo_coords, 2)
+    @assert length(reduced_axis) == 2 * length(point_axis)
+    @assert length(rotation_axis) == 3
+    @assert length(xyz_axis) == 3
+    @assert length(st_axis) == 2
+    rx, ry, rz = rotation_axis
+    x, y, z = xyz_axis
+    s, t = st_axis
+    _one = one(T)
+    @inbounds begin
+        @simd ivdep for i in point_axis
+            u = first(reduced_axis) + 2 * (i - first(point_axis))
+            v = u + 1
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            xs_i = x_i * stereo_coords[i, s]
+            xt_i = x_i * stereo_coords[i, t]
+            result[u, rx] = -flipsign(xt_i, z_i)
+            result[v, rx] = xs_i - _one
+            result[u, ry] = flipsign(xs_i + abs(z_i), z_i)
+            result[v, ry] = xt_i
+            result[u, rz] = -y_i
+            result[v, rz] = flipsign(x_i, z_i)
+        end
+    end
+    return result
+end
+
+
+################################################################################
 
 end # module ThomSolve
