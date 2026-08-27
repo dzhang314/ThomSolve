@@ -553,7 +553,7 @@ function run!(solver::NewtonSolver{T}) where {T}
     score = construct_pair_geometry!(solver.H, solver.forces_uv,
         solver.points, solver.stereo_coords)
     prev_s2 = _zero
-    while true
+    while (score > _zero) & isfinite(score)
         compute_step_direction!(solver)
         s2 = sum(abs2, solver.step_direction)
         final_step = (!iszero(prev_s2)) && (s2 <= num_points * _eps) &&
@@ -582,6 +582,7 @@ function run!(solver::NewtonSolver{T}) where {T}
             return solver
         end
     end
+    return solver
 end
 
 
