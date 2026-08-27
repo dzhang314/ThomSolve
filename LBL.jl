@@ -165,7 +165,7 @@ function lbl_solve!(
     b::AbstractVector{T},
     permutation::AbstractVector{Int},
     pivot_type::AbstractVector{LBLPivotType},
-) where {T<:AbstractFloat}
+) where {T}
     indices = axes(x, 1)
     @assert indices == axes(x_perm, 1)
     @assert indices == axes(A, 1)
