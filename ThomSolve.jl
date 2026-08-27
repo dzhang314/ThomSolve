@@ -1,5 +1,6 @@
 module ThomSolve
 
+using LBL: LBLPivotType, lbl_factorize!, lbl_solve!
 using MultiFloats: rsqrt_r
 
 ################################################################# COULOMB ENERGY
@@ -488,6 +489,99 @@ function hessian_from_pair_geometry!(
         end
     end
     return H
+end
+
+
+################################################################ NEWTON'S METHOD
+
+
+export NewtonSolver, run!
+
+
+struct NewtonSolver{T}
+    points::Matrix{T}
+    stereo_coords::Matrix{T}
+    trial_points::Matrix{T}
+    trial_stereo_coords::Matrix{T}
+    killing_vectors::Matrix{T}
+    H::Matrix{T}
+    forces_uv::Vector{T}
+    step_direction::Vector{T}
+    temp::Vector{T}
+    permutation::Vector{Int}
+    pivot_type::Vector{LBLPivotType}
+end
+
+
+function NewtonSolver{T}(::UndefInitializer, num_points::Int) where {T}
+    return NewtonSolver{T}(
+        Matrix{T}(undef, num_points, 3),
+        Matrix{T}(undef, num_points, 2),
+        Matrix{T}(undef, num_points, 3),
+        Matrix{T}(undef, num_points, 2),
+        Matrix{T}(undef, 2 * num_points, 3),
+        Matrix{T}(undef, 2 * num_points, 2 * num_points),
+        Vector{T}(undef, 2 * num_points),
+        Vector{T}(undef, 2 * num_points),
+        Vector{T}(undef, 2 * num_points),
+        Vector{Int}(undef, 2 * num_points),
+        Vector{LBLPivotType}(undef, 2 * num_points))
+end
+
+
+function compute_step_direction!(solver::NewtonSolver{T}) where {T}
+    sphere_killing_vectors!(solver.killing_vectors,
+        solver.points, solver.stereo_coords)
+    orthogonalize_columns!(solver.killing_vectors)
+    hessian_from_pair_geometry!(solver.H, solver.points, solver.stereo_coords)
+    symmetric_update!(solver.H, solver.killing_vectors)
+    lbl_factorize!(solver.H, solver.permutation, solver.pivot_type)
+    lbl_solve!(solver.step_direction, solver.temp,
+        solver.H, solver.forces_uv, solver.permutation, solver.pivot_type)
+    return solver
+end
+
+
+function run!(solver::NewtonSolver{T}) where {T}
+    _zero = zero(T)
+    _eps = eps(T)
+    _one = one(T)
+    _half = inv(_one + _one)
+    num_points = T(size(solver.points, 1))
+    sphere_project!(solver.points)
+    stereographic_coordinates!(solver.stereo_coords, solver.points)
+    score = construct_pair_geometry!(solver.H, solver.forces_uv,
+        solver.points, solver.stereo_coords)
+    prev_s2 = _zero
+    while true
+        compute_step_direction!(solver)
+        s2 = sum(abs2, solver.step_direction)
+        final_step = (!iszero(prev_s2)) && (s2 <= num_points * _eps) &&
+                     (s2 * sqrt(s2 / num_points) <= _eps * prev_s2)
+        step_size = _one
+        while !iszero(step_size)
+            sphere_step!(solver.trial_points, solver.trial_stereo_coords,
+                solver.points, solver.stereo_coords,
+                step_size, solver.step_direction)
+            trial_score = construct_pair_geometry!(solver.H, solver.temp,
+                solver.trial_points, solver.trial_stereo_coords)
+            if trial_score < score
+                copy!(solver.points, solver.trial_points)
+                copy!(solver.stereo_coords, solver.trial_stereo_coords)
+                copy!(solver.forces_uv, solver.temp)
+                score = trial_score
+                prev_s2 = ifelse(isone(step_size), s2, _zero)
+                break
+            end
+            if final_step || (solver.trial_points == solver.points)
+                return solver
+            end
+            step_size *= _half
+        end
+        if iszero(step_size)
+            return solver
+        end
+    end
 end
 
 
