@@ -1,5 +1,6 @@
 module ThomSolve
 
+using Base.Sort: QuickSort
 using LBL: LBLPivotType, lbl_factorize!, lbl_solve!
 using MultiFloats: rsqrt_r
 
@@ -131,8 +132,8 @@ end
 function symmetric_update!(C::AbstractMatrix{T}, A::AbstractMatrix{T}) where {T}
     # C is assumed to be symmetric; only its lower triangle (i >= j) is updated.
     indices = axes(C, 1)
-    @assert axes(C, 2) == indices
-    @assert axes(A, 1) == indices
+    @assert indices == axes(C, 2)
+    @assert indices == axes(A, 1)
     @inbounds begin
         for k in axes(A, 2)
             for j in indices
@@ -583,6 +584,41 @@ function run!(solver::NewtonSolver{T}) where {T}
         end
     end
     return solver
+end
+
+
+################################################################# FINGERPRINTING
+
+
+export distance_spectrum!
+
+
+function distance_spectrum!(
+    result::AbstractVector{T},
+    points::AbstractMatrix{T},
+) where {T}
+    pair_axis = axes(result, 1)
+    point_axis = axes(points, 1)
+    @assert length(pair_axis) == binomial(length(point_axis), 2)
+    xyz_axis = axes(points, 2)
+    @assert length(xyz_axis) == 3
+    x, y, z = xyz_axis
+    k = first(pair_axis) - 1
+    @inbounds begin
+        for i = first(point_axis):(last(point_axis)-1)
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            @simd ivdep for j = (i+1):last(point_axis)
+                x_j = points[j, x]
+                y_j = points[j, y]
+                z_j = points[j, z]
+                result[k+=1] = rsqrt_r(
+                    abs2(x_i - x_j) + abs2(y_i - y_j) + abs2(z_i - z_j))
+            end
+        end
+    end
+    return sort!(result; alg=QuickSort)
 end
 
 
