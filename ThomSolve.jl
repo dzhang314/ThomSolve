@@ -7,7 +7,7 @@ using MultiFloats: rsqrt_r
 ################################################################# COULOMB ENERGY
 
 
-export coulomb_energy, coulomb_forces!
+export coulomb_energy, coulomb_forces!, coulomb_sphere_force_norm2
 
 
 function coulomb_energy(points::AbstractMatrix{T}) where {T}
@@ -91,6 +91,58 @@ function coulomb_forces!(
         end
     end
     return forces
+end
+
+
+function coulomb_sphere_force_norm2(points::AbstractMatrix{T}) where {T}
+    point_axis = axes(points, 1)
+    xyz_axis = axes(points, 2)
+    @assert length(xyz_axis) == 3
+    x, y, z = xyz_axis
+    _zero = zero(T)
+    result = _zero
+    @inbounds begin
+        for i in point_axis
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            fx_i = _zero
+            fy_i = _zero
+            fz_i = _zero
+            @simd ivdep for j = first(point_axis):(i-1)
+                x_j = points[j, x]
+                y_j = points[j, y]
+                z_j = points[j, z]
+                dx = x_i - x_j
+                dy = y_i - y_j
+                dz = z_i - z_j
+                inv_r = rsqrt_r(abs2(dx) + abs2(dy) + abs2(dz))
+                inv_r3 = abs2(inv_r) * inv_r
+                fx_i = muladd(dx, inv_r3, fx_i)
+                fy_i = muladd(dy, inv_r3, fy_i)
+                fz_i = muladd(dz, inv_r3, fz_i)
+            end
+            @simd ivdep for j = (i+1):last(point_axis)
+                x_j = points[j, x]
+                y_j = points[j, y]
+                z_j = points[j, z]
+                dx = x_i - x_j
+                dy = y_i - y_j
+                dz = z_i - z_j
+                inv_r = rsqrt_r(abs2(dx) + abs2(dy) + abs2(dz))
+                inv_r3 = abs2(inv_r) * inv_r
+                fx_i = muladd(dx, inv_r3, fx_i)
+                fy_i = muladd(dy, inv_r3, fy_i)
+                fz_i = muladd(dz, inv_r3, fz_i)
+            end
+            overlap = muladd(x_i, fx_i, muladd(y_i, fy_i, z_i * fz_i))
+            fx_i = muladd(-overlap, x_i, fx_i)
+            fy_i = muladd(-overlap, y_i, fy_i)
+            fz_i = muladd(-overlap, z_i, fz_i)
+            result += abs2(fx_i) + abs2(fy_i) + abs2(fz_i)
+        end
+    end
+    return result
 end
 
 
@@ -619,6 +671,36 @@ function distance_spectrum!(
         end
     end
     return sort!(result; alg=QuickSort)
+end
+
+
+function distance_spectrum!(
+    result::AbstractVector{Tuple{T,Int,Int}},
+    points::AbstractMatrix{T},
+) where {T}
+    pair_axis = axes(result, 1)
+    point_axis = axes(points, 1)
+    @assert length(pair_axis) == binomial(length(point_axis), 2)
+    xyz_axis = axes(points, 2)
+    @assert length(xyz_axis) == 3
+    x, y, z = xyz_axis
+    k = first(pair_axis) - 1
+    @inbounds begin
+        for i = first(point_axis):(last(point_axis)-1)
+            x_i = points[i, x]
+            y_i = points[i, y]
+            z_i = points[i, z]
+            @simd ivdep for j = (i+1):last(point_axis)
+                x_j = points[j, x]
+                y_j = points[j, y]
+                z_j = points[j, z]
+                inv_r = rsqrt_r(
+                    abs2(x_i - x_j) + abs2(y_i - y_j) + abs2(z_i - z_j))
+                result[k+=1] = (inv_r, i, j)
+            end
+        end
+    end
+    return sort!(result; by=first, alg=QuickSort)
 end
 
 
